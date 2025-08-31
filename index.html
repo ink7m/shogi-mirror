@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>将棋棋譜 左右反転ツール</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      max-width: 800px;
+      margin: auto;
+    }
+    textarea {
+      width: 100%;
+      height: 200px;
+      margin-bottom: 1rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+    }
+    pre {
+      background: #f0f0f0;
+      padding: 1rem;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>将棋棋譜 左右反転ツール</h1>
+  <p>棋譜（KIF形式)を下に貼り付け、「反転する」を押すと左右反転された棋譜が出力されます。</p>
+  <!-- ユーザーが棋譜を貼り付けるためのテキストエリア -->
+  <textarea id="input" placeholder="ここに棋譜を貼り付けてください"></textarea>
+  <!-- 反転処理を実行するボタン -->
+  <button onclick="reverseKifu()">反転する</button>
+  <h2>反転された棋譜：</h2>
+  <!-- 反転された棋譜を表示するエリア -->
+  <pre id="output"></pre>
+
+  <script>
+  // 全角数字（０〜９）を半角に変換する（"７" → "7"）
+  function toHalfWidthDigits(str) {
+    if (str == null) return str;
+    return String(str).replace(/[０-９]/g, ch =>
+      String.fromCharCode(ch.charCodeAt(0) - 0xFF10 + 0x30)
+    );
+  }
+
+  // 半角数字（'0'..'9'）を全角数字に変換する（"7" → "７"）
+  function toFullWidthDigits(str) {
+    return String(str).split('').map(ch =>
+      String.fromCharCode(ch.charCodeAt(0) - 0x30 + 0xFF10)
+    ).join('');
+  }
+
+  // 2桁の座標（半角）を左右反転する（例: "77" -> "37"）
+  function reverseFile(posStr) {
+    if (typeof posStr !== 'string') posStr = String(posStr);
+    // いちおう半角に揃える
+    posStr = toHalfWidthDigits(posStr);
+    if (posStr.length !== 2 || isNaN(posStr)) return posStr;
+    const file = 10 - parseInt(posStr[0], 10); // 筋を反転
+    return file.toString() + posStr[1];
+  }
+
+  // 1行を反転して返す
+  function reverseLine(line) {
+    // work on a copy
+    let newLine = line;
+
+    // 1) 行中の「(NN)」または「（ＮＮ）」の形式（ちょうど2桁）を全て見つけて反転する
+    //    - 時間表記のように ':' や '/' を含む括弧はマッチしないので安全
+    newLine = newLine.replace(/([\(\（])([0-9０-９]{2})([\)\）])/g, (m, open, digits, close) => {
+      // 元の桁幅（全角 or 半角）を判定して、置換時に同じ幅を保つ
+      const isFullwidth = /[０-９]/.test(digits);
+      const digitsHalf = toHalfWidthDigits(digits);
+      if (digitsHalf.length !== 2 || isNaN(digitsHalf)) return m; // 念のため
+      const rev = reverseFile(digitsHalf); // 半角結果、例: "65"
+      // 出力は元と同じ幅に合わせる
+      const outDigits = isFullwidth ? toFullWidthDigits(rev) : rev;
+      return open + outDigits + close;
+    });
+
+    // 2) 表示上の筋（例: "７六"）を反転する（ただし「同」の場合は変えない）
+    //    マッチ例: "   3 ３六歩..." のように手数の後に筋段が来ることを想定
+    const displayRegex = /(\d+)\s+([１-９])([一二三四五六七八九])/;
+    const m = newLine.match(displayRegex);
+    if (m) {
+      const [, handNum, fileKanji, rankKanji] = m;
+      // '同' でないことはここで保証（fileKanji は１〜９）
+      const fileHalf = toHalfWidthDigits(fileKanji); // e.g. '３' -> '3'
+      const reversedFileNum = 10 - parseInt(fileHalf, 10); // 反転
+      const newFileKanji = toFullWidthDigits(String(reversedFileNum)); // 半角→全角表示用
+      // 最初の「筋段」だけ置換（同じマッチ箇所）
+      newLine = newLine.replace(`${fileKanji}${rankKanji}`, `${newFileKanji}${rankKanji}`);
+    }
+
+    // 3) 「同」パターンで、万が一括弧内が残っているなら（1で既に処理済みのはスキップ）、
+    //    ここでは何もしない（括弧内は既に反転済み）。
+    //    つまり括弧内の反転は (1) で一括処理してあるため追加処理不要。
+
+    return newLine;
+  }
+
+  // 全体処理：テキストエリアの値を行ごとに反転して出力する
+  function reverseKifu() {
+    const input = document.getElementById("input").value;
+    const lines = input.split('\n');
+    const reversed = lines.map(reverseLine);
+
+    const boardDiagram =
+`後手の持駒：なし
+  ９ ８ ７ ６ ５ ４ ３ ２ １
++---------------------------+
+|v香v桂v銀v金v玉v金v銀v桂v香|一
+| ・v角 ・ ・ ・ ・ ・v飛 ・|二
+|v歩v歩v歩v歩v歩v歩v歩v歩v歩|三
+| ・ ・ ・ ・ ・ ・ ・ ・ ・|四
+| ・ ・ ・ ・ ・ ・ ・ ・ ・|五
+| ・ ・ ・ ・ ・ ・ ・ ・ ・|六
+| 歩 歩 歩 歩 歩 歩 歩 歩 歩|七
+| ・ 飛 ・ ・ ・ ・ ・ 角 ・|八
+| 香 桂 銀 金 玉 金 銀 桂 香|九
++---------------------------+
+先手の持駒：なし
+手数＝0    まで`;
+
+    document.getElementById("output").textContent =
+      boardDiagram + '\n' + reversed.join('\n');
+  }
+</script>
+
+</body> 
+</html>
